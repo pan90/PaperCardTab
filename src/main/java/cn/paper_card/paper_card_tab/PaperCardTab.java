@@ -6,7 +6,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -32,12 +31,15 @@ public final class PaperCardTab extends JavaPlugin implements Listener {
                 .append(Component.newline())
                 .build();
 
+        final long current = System.currentTimeMillis();
+
 
         for (final Player player : this.getServer().getOnlinePlayers()) {
-            if (player == null || !player.isOnline()) continue;
+            if (player == null) continue;
 
-            final World world = player.getWorld();
-            final long days = (world.getGameTime() / 24000L) + 1;
+            long dayNo = current - player.getFirstPlayed();
+            dayNo /= (1000L * 60 * 60 * 24);
+            dayNo += 1;
 
             final TextComponent footer = Component.text()
                     .append(Component.text("Ping: %d    MSPT: %.2f".formatted(player.getPing(), this.mspt)))
@@ -47,8 +49,8 @@ public final class PaperCardTab extends JavaPlugin implements Listener {
                             this.getServer().getOfflinePlayers().length))
                     )
                     .append(Component.newline())
-                    .append(Component.text("游戏里的第"))
-                    .append(Component.text(days).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.BOLD))
+                    .append(Component.text("这是你游玩服务器的第"))
+                    .append(Component.text(dayNo).color(NamedTextColor.LIGHT_PURPLE).decorate(TextDecoration.BOLD))
                     .append(Component.text("天"))
                     .build();
 
