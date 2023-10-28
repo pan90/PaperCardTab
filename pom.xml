@@ -120,6 +120,13 @@
             <systemPath>${basedir}/lib/kaiiju-1.20.1.jar</systemPath>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/org.fusesource/sigar -->
+        <dependency>
+            <groupId>org.fusesource</groupId>
+            <artifactId>sigar</artifactId>
+            <version>1.6.4</version>
+        </dependency>
+
 
     </dependencies>
 </project>

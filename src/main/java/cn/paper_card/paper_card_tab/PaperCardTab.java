@@ -8,7 +8,6 @@ import io.papermc.paper.threadedregions.TickRegionScheduler;
 import me.lucko.spark.api.Spark;
 import me.lucko.spark.api.statistic.StatisticWindow;
 import me.lucko.spark.api.statistic.misc.DoubleAverageInfo;
-import me.lucko.spark.api.statistic.types.DoubleStatistic;
 import me.lucko.spark.api.statistic.types.GenericStatistic;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.TextComponent;
@@ -22,6 +21,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.hyperic.sigar.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -40,6 +40,12 @@ public final class PaperCardTab extends JavaPlugin implements Listener {
     private TextComponent lastTip = null;
 
     private Spark spark = null;
+
+    private Sigar sigar = null;
+
+    private long lastRx = 0;
+    private long lastTx = 0;
+    private long lastRecordTime = -1;
 
     public PaperCardTab() {
         this.paperCardAfkApi = this.getPaperCardAfkApi0();
@@ -62,6 +68,25 @@ public final class PaperCardTab extends JavaPlugin implements Listener {
         return text.build();
     }
 
+    private @NotNull String toReadableBound(double bps) {
+        String unit = "bps";
+        if (bps > 1024) {
+            unit = "Kbps";
+            bps /= 1024;
+
+            if (bps > 1024) {
+                unit = "Mbps";
+                bps /= 1024;
+
+                if (bps > 1024) {
+                    unit = "Gbps";
+                    bps /= 1024;
+                }
+            }
+        }
+        return "%.2f%s".formatted(bps, unit);
+    }
+
     private void updateTab() {
 
 
@@ -81,11 +106,6 @@ public final class PaperCardTab extends JavaPlugin implements Listener {
         );
 
         if (this.spark != null) {
-            final DoubleStatistic<StatisticWindow.CpuUsage> cpuUsageDoubleStatistic = this.spark.cpuProcess();
-            final double cpu = cpuUsageDoubleStatistic.poll(StatisticWindow.CpuUsage.SECONDS_10) * 100;
-            header.append(Component.text("  "));
-            header.append(Component.text("CPU: %.2f%%".formatted(cpu)));
-
             final GenericStatistic<DoubleAverageInfo, StatisticWindow.MillisPerTick> mspt = this.spark.mspt();
             if (mspt != null) {
                 final DoubleAverageInfo poll = mspt.poll(StatisticWindow.MillisPerTick.SECONDS_10);
@@ -96,9 +116,57 @@ public final class PaperCardTab extends JavaPlugin implements Listener {
             }
         }
 
+        final long current = System.currentTimeMillis();
+
+        if (this.sigar != null) {
+
+            try {
+                final CpuPerc cpuPerc = this.sigar.getCpuPerc();
+                final double combined = cpuPerc.getCombined() * 100;
+                header.append(Component.text("  "));
+                header.append(Component.text("CPU: %.2f%%".formatted(combined)));
+            } catch (SigarException e) {
+                e.printStackTrace();
+            }
+
+            try {
+                long rx = 0;
+                long tx = 0;
+                for (String s : this.sigar.getNetInterfaceList()) {
+                    final NetInterfaceStat stat = this.sigar.getNetInterfaceStat(s);
+                    final NetInterfaceConfig netInterfaceConfig = this.sigar.getNetInterfaceConfig(s);
+
+                    if (NetFlags.isAnyAddress(netInterfaceConfig.getAddress())) {
+                        continue;
+                    }
+
+                    rx += stat.getRxBytes();
+                    tx += stat.getTxBytes();
+                }
+
+                // 秒数
+                final double dt = (double) (current - this.lastRecordTime) / 1000L;
+
+                double drx = (rx - this.lastRx) / dt; // 每秒接收字节数
+                double dtx = (tx - this.lastTx) / dt; // 每秒发送字节数
+
+                // 转成二进制位
+                drx *= 8;
+                dtx *= 8;
+
+                header.append(Component.text("  "));
+                header.append(Component.text("带宽: %s↑ %s↓".formatted(this.toReadableBound(dtx), this.toReadableBound(drx))));
+
+                this.lastRx = rx;
+                this.lastTx = tx;
+                this.lastRecordTime = current;
+            } catch (SigarException e) {
+                e.printStackTrace();
+            }
+        }
+
         header.appendNewline();
 
-        final long current = System.currentTimeMillis();
 
         // 你知道吗
         if (this.lastTipTime > 0 && current < this.lastTipTime + 20 * 1000L) {
@@ -281,10 +349,22 @@ public final class PaperCardTab extends JavaPlugin implements Listener {
         } else {
             this.getLogger().warning("无法访问SparkAPI！");
         }
+
+        try {
+            Sigar.load();
+        } catch (SigarException e) {
+            throw new RuntimeException(e);
+        }
+        this.sigar = new Sigar();
     }
 
     @Override
     public void onDisable() {
         this.saveConfig();
+
+        if (this.sigar != null) {
+            this.sigar.close();
+            this.sigar = null;
+        }
     }
 }
